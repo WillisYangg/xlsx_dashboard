@@ -151,8 +151,29 @@ def main():
     wb = load_workbook(f"{new_file_name}.xlsx")
     sheet = wb['Summary']
 
-    family_vul_chart = barchart_creation(sheet, 4, 22.5, 10, "col", 10, "Family", "Family", "Count", 2, family_vul_columns, 1, family_vul_rows+1, True, False, False, False)
+    max_row_table = family_vul_rows + 1
+    family_vul_chart = barchart_creation(sheet, 4, 22.5, 7, "col", 10, "Family", "Family", "Count", 2, family_vul_columns, 1, max_row_table, True, False, False, False)
+    family_vul_piechart = piechart_creation(sheet, 4, 22.5, 7, "Family", 2, 1, max_row_table, family_vul_columns, False, False, False, True)
+    min_row_table = family_vul_rows + 3
+    max_row_table = max_row_table + 2 + severity_vul_rows
+    severity_vul_chart = barchart_creation(sheet, 4, 22.5, 7, "col", 10, "Severity", "Severity", "Count", 2, severity_vul_columns, min_row_table, max_row_table, True, False, False, False)
+    severity_vul_piechart = piechart_creation(sheet, 4, 22.5, 7, "Severity", 2, min_row_table, max_row_table, severity_vul_columns, False, False, False, True)
+    min_row_table = min_row_table + severity_vul_rows + 2
+    max_row_table = max_row_table + 2 + asset_group_vul_rows
+    asset_group_vul_chart = barchart_creation(sheet, 4, 22.5, 7, "col", 10, "Asset Group", "Asset Group", "Count", 2, asset_group_vul_columns, min_row_table, max_row_table, True, False, False, False)
+    asset_group_vul_piechart = piechart_creation(sheet, 4, 22.5, 7, "Asset Group", 2, min_row_table, max_row_table, asset_group_vul_columns, False, False, False, True)
+    min_row_table = min_row_table + asset_group_vul_rows + 2
+    max_row_table = max_row_table + 2 + overdue_vul_rows
+    overdue_vul_chart = barchart_creation(sheet, 4, 22.5, 7, "col", 10, "Overdue", "Overdue", "Count", 2, overdue_vul_columns, min_row_table, max_row_table, True, False, False, False)
+    overdue_vul_piechart = piechart_creation(sheet, 4, 22.5, 7, "Overdue", 2, min_row_table, max_row_table, overdue_vul_columns, False, False, False, True)
     sheet.add_chart(family_vul_chart, "D1")
+    sheet.add_chart(severity_vul_chart, "D18")
+    sheet.add_chart(asset_group_vul_chart, "D35")
+    sheet.add_chart(overdue_vul_chart, "D52")
+    sheet.add_chart(family_vul_piechart, "Q1")
+    sheet.add_chart(severity_vul_piechart, "Q18")
+    sheet.add_chart(asset_group_vul_piechart, "Q35")
+    sheet.add_chart(overdue_vul_piechart, "Q52")
 
     wb.save(f"{new_file_name}.xlsx")
 
