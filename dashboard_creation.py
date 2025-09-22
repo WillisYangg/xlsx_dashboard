@@ -231,5 +231,83 @@ def main():
 
     wb.save(f"{new_file_name}.xlsx")
 
+    sheet_name = "Asset Group & Severity"
+    with pd.ExcelWriter(f"{new_file_name}.xlsx", engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
+        sheet = sheet_name
+        new_row = 3
+        pivot_table_2_wide.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
+        ws = writer.sheets[sheet]
+
+        header_row = new_row+1
+        first_data_row = header_row+1
+        last_data_row = ws.max_row
+        start_col = 1
+        last_col = pivot_table_2_wide_columns
+
+        ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
+
+    wb = load_workbook(f"{new_file_name}.xlsx")
+    sheet = wb[sheet_name]
+    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_2_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
+    merge_cells_title(sheet, f"{get_column_letter(pivot_table_2_wide_columns+3)}1", "AH2", 1, pivot_table_2_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
+
+    min_row_table = 4
+    max_row_table = min_row_table + pivot_table_2_wide_rows
+    pivot_table_2_wide_chart = barchart_creation(sheet, 50.5, 30, "col", "Severity and Asset Group", "Asset Group", "Count", 2, pivot_table_2_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_2_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+
+    wb.save(f"{new_file_name}.xlsx")
+
+    sheet_name = "Overdue & Severity"
+    with pd.ExcelWriter(f"{new_file_name}.xlsx", engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
+        sheet = sheet_name
+        new_row = 3
+        pivot_table_3_wide.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
+        ws = writer.sheets[sheet]
+
+        header_row = new_row+1
+        first_data_row = header_row+1
+        last_data_row = ws.max_row
+        start_col = 1
+        last_col = pivot_table_3_wide_columns
+
+        ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
+
+    wb = load_workbook(f"{new_file_name}.xlsx")
+    sheet = wb[sheet_name]
+    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_3_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
+    merge_cells_title(sheet, f"{get_column_letter(pivot_table_3_wide_columns+3)}1", "O2", 1, pivot_table_3_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
+
+    min_row_table = 4
+    max_row_table = min_row_table + pivot_table_3_wide_rows
+    pivot_table_3_wide_chart = barchart_creation(sheet, 15, 30, "col", "Overdue and Plugin Family", "Family", "Count", 2, pivot_table_3_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_3_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+
+    wb.save(f"{new_file_name}.xlsx")
+
+    sheet_name = "Asset Grp, Family & Severity"
+    with pd.ExcelWriter(f"{new_file_name}.xlsx", engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
+        sheet = sheet_name
+        new_row = 3
+        pivot_table_4_wide.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
+        ws = writer.sheets[sheet]
+
+        header_row = new_row+1
+        first_data_row = header_row+1
+        last_data_row = ws.max_row
+        start_col = 1
+        last_col = pivot_table_4_wide_columns
+
+        ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
+
+    wb = load_workbook(f"{new_file_name}.xlsx")
+    sheet = wb[sheet_name]
+    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_4_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
+    # merge_cells_title(sheet, f"{get_column_letter(pivot_table_3_wide_columns+3)}1", "O2", 1, pivot_table_3_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
+
+    # min_row_table = 4
+    # max_row_table = min_row_table + pivot_table_3_wide_rows
+    # pivot_table_3_wide_chart = barchart_creation(sheet, 15, 30, "col", "Overdue and Plugin Family", "Family", "Count", 2, pivot_table_3_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_3_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+
+    wb.save(f"{new_file_name}.xlsx")
+
 if __name__ == "__main__":
     main()
