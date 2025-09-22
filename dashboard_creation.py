@@ -105,6 +105,12 @@ def pivot_table_wide(df, index_col, col, val):
         .fillna(0)
         .reset_index()
     )
+    if isinstance(index_col, list):
+        pivot_df_wide.insert(2, 'Label',
+                             pivot_df_wide[index_col[0]].astype(str).str.strip()
+                             + " - " +
+                             pivot_df_wide[index_col[1]].astype(str).str.strip()
+                             )
     pivot_df_wide_rows = pivot_df_wide.shape[0]
     pivot_df_wide_columns = pivot_df_wide.shape[1]
     return pivot_df_wide, pivot_df_wide_rows, pivot_df_wide_columns
@@ -301,11 +307,11 @@ def main():
     wb = load_workbook(f"{new_file_name}.xlsx")
     sheet = wb[sheet_name]
     merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_4_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
-    # merge_cells_title(sheet, f"{get_column_letter(pivot_table_3_wide_columns+3)}1", "O2", 1, pivot_table_3_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
+    merge_cells_title(sheet, f"{get_column_letter(pivot_table_4_wide_columns+3)}1", "AH2", 1, pivot_table_4_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
-    # min_row_table = 4
-    # max_row_table = min_row_table + pivot_table_3_wide_rows
-    # pivot_table_3_wide_chart = barchart_creation(sheet, 15, 30, "col", "Overdue and Plugin Family", "Family", "Count", 2, pivot_table_3_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_3_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+    min_row_table = 4
+    max_row_table = min_row_table + pivot_table_4_wide_rows
+    pivot_table_4_wide_chart = barchart_creation(sheet, 300, 30, "col", "Asset Group, Plugin Family and Severity", "Family", "Count", 4, pivot_table_4_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_4_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
 
     wb.save(f"{new_file_name}.xlsx")
 
