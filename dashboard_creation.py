@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import seaborn as sb
 import matplotlib.pyplot as plt
+import os
 import openpyxl
 from openpyxl.utils import get_column_letter
 from openpyxl import load_workbook
@@ -14,25 +15,35 @@ from datetime import datetime
 
 today = datetime.today()
 new_file_name = "dummy_data"
-df = pd.read_excel(f"{new_file_name}_raw.xlsx")
+raw_df = pd.read_excel(f"{new_file_name}_raw.xlsx")
+df = raw_df.copy()
+
+# Excel Generation function
+def generate_excel(destination, excel_sheet_name, df, header_row):
+    with pd.ExcelWriter(destination, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+        sheet = excel_sheet_name
+        df.to_excel(writer, sheet_name=sheet, index=False)
+        ws = writer.sheets[sheet]
+
+        header_row = header_row
+        first_data_row = header_row + 1
+        last_data_row = ws.max_row
+        start_col = 1
+        last_col = df.shape[1]
+
+        ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
+
+# insert 'scan' column defined based on the value in 'port'
+target_position = df.columns.get_loc('port') + 1
+target_values = np.where(df['port'] != 0, 'Network Scan', 'Agent Scan')
+df.insert(loc=target_position, column='scan', value=target_values)
+
 newfile = f"{new_file_name}.xlsx"
+if os.path.exists(newfile):
+    os.remove(newfile)
 empty_df = pd.DataFrame()
-empty_df.to_excel(newfile, sheet_name="Original Vulnerabilities")
+empty_df.to_excel(newfile, sheet_name="Overdue Vulnerabilities")
 severity_thresholds = {"Critical": 60, "High": 60, "Medium": 90, "Low": 90}
-
-sheet_name = "Original Vulnerabilities"
-with pd.ExcelWriter(newfile, engine='openpyxl', mode='a', if_sheet_exists="overlay") as writer:
-    sheet = sheet_name
-    df.to_excel(writer, sheet_name=sheet,index = False)
-    ws = writer.sheets[sheet]
-
-    header_row = 1
-    first_data_row = header_row+1
-    last_data_row = ws.max_row
-    start_col = 1
-    last_col = df.shape[1]
-
-    ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
 
 # time columns conversion
 df['patch_publication_date'] = pd.to_datetime(df['patch_publication_date'], format = "%d/%m/%Y %H:%M:%S")
@@ -60,38 +71,18 @@ df["overdue (days)"] = df.apply(
     axis=1
 )
 
-overdue_df = df.loc[df['overdue'] == 'Y'].reset_index()
+overdue_df = df.loc[df['overdue'] == 'Y'].reset_index(drop=True)
+non_overdue_df = df.loc[df['overdue'] == 'N'].reset_index(drop=True)
 
 # place this new table with additional columns into a new sheet
-sheet_name = "Comparison & Overdue Cal"
-with pd.ExcelWriter(newfile, engine='openpyxl', mode='a', if_sheet_exists="overlay") as writer:
-    sheet = sheet_name
-    df.to_excel(writer, sheet_name=sheet,index = False)
-    ws = writer.sheets[sheet]
-
-    header_row = 1
-    first_data_row = header_row+1
-    last_data_row = ws.max_row
-    start_col = 1
-    last_col = df.shape[1]
-
-    ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
-
 sheet_name = "Overdue Vulnerabilities"
-with pd.ExcelWriter(newfile, engine='openpyxl', mode='a', if_sheet_exists="overlay") as writer:
-    sheet = sheet_name
-    overdue_df.to_excel(writer, sheet_name=sheet,index = False)
-    ws = writer.sheets[sheet]
+generate_excel(newfile, sheet_name, overdue_df, 1)
+sheet_name = "Non-Overdue Vulnerabilities"
+generate_excel(newfile, sheet_name, non_overdue_df, 1)
+sheet_name = "Original Vulnerabilities"
+generate_excel(newfile, sheet_name, raw_df, 1)
 
-    header_row = 1
-    first_data_row = header_row+1
-    last_data_row = ws.max_row
-    start_col = 1
-    last_col = overdue_df.shape[1]
-
-    ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
-
-# Function creations
+# Chart functions
 def merge_cells_title(sheet, cell1, cell2, row_no, col, val, horizontal_val, vertical_val, color):
     sheet.merge_cells(f'{cell1}:{cell2}')
     cell = sheet.cell(row=row_no, column=col)
@@ -99,9 +90,16 @@ def merge_cells_title(sheet, cell1, cell2, row_no, col, val, horizontal_val, ver
     cell.alignment = Alignment(horizontal=horizontal_val, vertical=vertical_val)
     cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
 
-def univariate_table(df, variable):
-    sub_df = df[variable].value_counts().reset_index()
-    sub_df.columns = [variable, 'count']
+def univariate_table(df, variable, top_n=5):
+    counts = df[variable].value_counts().reset_index()
+    counts.columns = [variable, 'count']
+    if len(counts) > top_n:
+        sub_df = counts.head(top_n).copy()
+        misc_count = counts.iloc[top_n:]['count'].sum()
+        misc_row = pd.DataFrame({variable: ['Misc'], 'count': [misc_count]})
+        sub_df = pd.concat([sub_df, misc_row], ignore_index=True)
+    else:
+        sub_df = counts
     sub_df_rows = sub_df.shape[0]
     sub_df_columns = sub_df.shape[1]
     return sub_df, sub_df_rows, sub_df_columns
@@ -116,13 +114,16 @@ def pivot_table(df, index_col, col, val):
     return pivot_table_df
 
 def pivot_table_wide(df, index_col, col, val):
+    column_order = ["Critical", "High", "Medium", "Low"]
     pivot_df = pivot_table(df, index_col, col, val)
     pivot_df_wide = (
         pivot_df
         .pivot(index=index_col, columns=col, values="count")
         .fillna(0)
-        .reset_index()
     )
+    existing_cols = [c for c in column_order if c in pivot_df_wide.columns]
+    pivot_df_wide = pivot_df_wide.reindex(columns=existing_cols)
+    pivot_df_wide = pivot_df_wide.reset_index()
     if isinstance(index_col, list):
         pivot_df_wide.insert(2, 'Label',
                              pivot_df_wide[index_col[0]].astype(str).str.strip()
@@ -133,7 +134,7 @@ def pivot_table_wide(df, index_col, col, val):
     pivot_df_wide_columns = pivot_df_wide.shape[1]
     return pivot_df_wide, pivot_df_wide_rows, pivot_df_wide_columns
 
-def barchart_creation(sheet, width, height, chartType, variable, x_title, y_title, min_col, max_col, min_row, max_row, showVal, showSerName, showCatName, showLeaderLines, cell, chartStyle=None, chartGrouping=None, chartOverlap=None, shape=None):
+def barchart_creation(sheet, chartType, variable, x_title, y_title, min_col, max_col, min_row, max_row, showVal, showSerName, showCatName, showLeaderLines, cell, chartStyle=None, chartGrouping=None, chartOverlap=None, shape=None):
     chart = BarChart()
     chart.type = chartType
     if chartStyle is not None:
@@ -143,11 +144,14 @@ def barchart_creation(sheet, width, height, chartType, variable, x_title, y_titl
     if chartOverlap is not None:
         chart.overlap = chartOverlap
     chart.title = f"Vulnerabilities by {variable}"
-    chart.title.overlay = False
+    num_categories = max_row - min_row
+
     chart.x_axis.title = x_title
     chart.y_axis.title = y_title
-    chart.x_axis.overlay = False
-    chart.y_axis.overlay = False
+    chart.y_axis.majorGridlines = None
+    chart.x_axis.title.overlay = chart.y_axis.title.overlay = chart.legend.overlay = chart.title.overlay = False
+    
+    # Data & Categories
     data = Reference(sheet, min_col=min_col, min_row=min_row, max_row=max_row, max_col=max_col)
     cats = Reference(sheet, min_col=min_col-1, min_row=min_row+1, max_row=max_row)
     chart.add_data(data, titles_from_data=True)
@@ -157,16 +161,31 @@ def barchart_creation(sheet, width, height, chartType, variable, x_title, y_titl
     chart.dataLabels.showCatName = showCatName
     chart.dataLabels.showLeaderLines = showLeaderLines
     chart.set_categories(cats)
-    if shape is not None:
-        chart.shape = shape
-    chart.width = width
-    chart.height = height
+    
+    if chartGrouping is not None:
+        chart.x_axis.delete = False
+        chart.x_axis.tickLblPos = "nextTo" # position of the x axis labels 
+        chart.x_axis.crosses = "autoZero" # position of the 0 point where x axis and y axis cross
+        chart.x_axis.tickLblSkip = 1
+        chart.x_axis.tickMarkSkip = 1
+    else:
+        chart.x_axis.tickLblPos = "low"
+        chart.x_axis.crosses = "min"
+        chart.x_axis.tickLblSkip = 1
+        chart.x_axis.tickMarkSkip = 1
+    
+    chart.width = 6 + (num_categories * 2) 
+    chart.height = 7 + (num_categories * 0.1)
+    
     sheet.add_chart(chart, cell)
     return chart
 
-def piechart_creation(sheet, shape, width, height, variable, min_col, min_row, max_row, max_col, showVal, showSerName, showCatName, showPercent, cell):
+def piechart_creation(sheet, shape, variable, min_col, min_row, max_row, max_col, showVal, showSerName, showCatName, showPercent, cell):
     chart = PieChart()
     chart.title = f"Vulnerabilities by {variable}"
+    num_categories = max_row - min_row
+
+    # Data & Categories
     data = Reference(sheet, min_col=min_col, min_row=min_row, max_row=max_row, max_col=max_col)
     cats = Reference(sheet, min_col=min_col-1, min_row=min_row+1, max_row=max_row)
     chart.add_data(data, titles_from_data=True)
@@ -176,9 +195,10 @@ def piechart_creation(sheet, shape, width, height, variable, min_col, min_row, m
     chart.dataLabels.showCatName = showCatName
     chart.dataLabels.showPercent = showPercent
     chart.set_categories(cats)
+
     chart.shape = shape
-    chart.width = width
-    chart.height = height
+    chart.width = 6 + (num_categories * 2) 
+    chart.height = 7 + (num_categories * 0.1)
     sheet.add_chart(chart, cell)
     return chart
 
@@ -187,6 +207,8 @@ def main():
     severity_vul, severity_vul_rows, severity_vul_columns = univariate_table(df, 'severity')
     asset_group_vul, asset_group_vul_rows, asset_group_vul_columns = univariate_table(df, 'asset_group')
     overdue_vul, overdue_vul_rows, overdue_vul_columns = univariate_table(df, 'overdue')
+    barchart_start_column_value = family_vul_columns+2
+    barchart_start_column = get_column_letter(barchart_start_column_value)
     pivot_table_1_wide, pivot_table_1_wide_rows, pivot_table_1_wide_columns = pivot_table_wide(df, "plugin_family", "severity", "plugin_id")
     pivot_table_2_wide, pivot_table_2_wide_rows, pivot_table_2_wide_columns = pivot_table_wide(df, "asset_group", "severity", "plugin_id")
     pivot_table_3_wide, pivot_table_3_wide_rows, pivot_table_3_wide_columns = pivot_table_wide(df, "overdue", "severity", "plugin_id")
@@ -207,29 +229,35 @@ def main():
     wb = load_workbook(newfile)
     sheet = wb[sheet_name]
 
-    merge_cells_title(sheet, "A1", "B2", 1, 1, "Summary Table", "center", "center", "00FFFF00")
-    merge_cells_title(sheet, "D1", "AB2", 1, 4, "Summary Table Charts", "center", "center", '0000FF00')
+    charts_length = []
 
     min_row_table = 4
     max_row_table = min_row_table + family_vul_rows
-    family_vul_chart = barchart_creation(sheet, 22.5, 7, "col", "Family", "Family", "Count", 2, family_vul_columns, min_row_table, max_row_table, True, False, False, False, "D4", chartStyle=10, shape=4)
-    family_vul_piechart = piechart_creation(sheet, 4, 22.5, 7, "Family", 2, min_row_table, max_row_table, family_vul_columns, False, False, False, True, "Q4")
+    family_vul_chart = barchart_creation(sheet, "col", "Family", "Family", "Count", 2, family_vul_columns, min_row_table, max_row_table, True, False, False, False, f"{barchart_start_column}4", chartStyle=10, shape=4)
+    family_vul_piechart = piechart_creation(sheet, 4, "Family", 2, min_row_table, max_row_table, family_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(family_vul_chart.width / 1.7)+1)}4")
+    charts_length.append(barchart_start_column_value + round(family_vul_chart.width / 1.7)+1+round(family_vul_piechart.width / 1.7))
     min_row_table = min_row_table + family_vul_rows + 2
     max_row_table = max_row_table + 2 + severity_vul_rows
-    severity_vul_chart = barchart_creation(sheet, 22.5, 7, "col", "Severity", "Severity", "Count", 2, severity_vul_columns, min_row_table, max_row_table, True, False, False, False, "D21", chartStyle=10, shape=4)
-    severity_vul_piechart = piechart_creation(sheet, 4, 22.5, 7, "Severity", 2, min_row_table, max_row_table, severity_vul_columns, False, False, False, True, "Q21")
+    severity_vul_chart = barchart_creation(sheet, "col", "Severity", "Severity", "Count", 2, severity_vul_columns, min_row_table, max_row_table, True, False, False, False, f"{barchart_start_column}21", chartStyle=10, shape=4)
+    severity_vul_piechart = piechart_creation(sheet, 4, "Severity", 2, min_row_table, max_row_table, severity_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(severity_vul_chart.width / 1.7)+1)}21")
+    charts_length.append(barchart_start_column_value + round(severity_vul_chart.width / 1.7)+1+round(severity_vul_piechart.width / 1.7))
     min_row_table = min_row_table + severity_vul_rows + 2
     max_row_table = max_row_table + 2 + asset_group_vul_rows
-    asset_group_vul_chart = barchart_creation(sheet, 22.5, 7, "col", "Asset Group", "Asset Group", "Count", 2, asset_group_vul_columns, min_row_table, max_row_table, True, False, False, False, "D38", chartStyle=10, shape=4)
-    asset_group_vul_piechart = piechart_creation(sheet, 4, 22.5, 7, "Asset Group", 2, min_row_table, max_row_table, asset_group_vul_columns, False, False, False, True, "Q38")
+    asset_group_vul_chart = barchart_creation(sheet, "col", "Asset Group", "Asset Group", "Count", 2, asset_group_vul_columns, min_row_table, max_row_table, True, False, False, False, f"{barchart_start_column}38", chartStyle=10, shape=4)
+    asset_group_vul_piechart = piechart_creation(sheet, 4, "Asset Group", 2, min_row_table, max_row_table, asset_group_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(asset_group_vul_chart.width / 1.7)+1)}38")
+    charts_length.append(barchart_start_column_value + round(asset_group_vul_chart.width / 1.7)+1+round(asset_group_vul_piechart.width / 1.7))
     min_row_table = min_row_table + asset_group_vul_rows + 2
     max_row_table = max_row_table + 2 + overdue_vul_rows
-    overdue_vul_chart = barchart_creation(sheet, 22.5, 7, "col", "Overdue", "Overdue", "Count", 2, overdue_vul_columns, min_row_table, max_row_table, True, False, False, False, "D55", chartStyle=10, shape=4)
-    overdue_vul_piechart = piechart_creation(sheet, 4, 22.5, 7, "Overdue", 2, min_row_table, max_row_table, overdue_vul_columns, False, False, False, True, "Q55")
+    overdue_vul_chart = barchart_creation(sheet, "col", "Overdue", "Overdue", "Count", 2, overdue_vul_columns, min_row_table, max_row_table, True, False, False, False, f"{barchart_start_column}55", chartStyle=10, shape=4)
+    overdue_vul_piechart = piechart_creation(sheet, 4, "Overdue", 2, min_row_table, max_row_table, overdue_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(overdue_vul_chart.width / 1.7)+1)}55")
+    charts_length.append(barchart_start_column_value + round(overdue_vul_chart.width / 1.7)+1+round(overdue_vul_piechart.width / 1.7))
+
+    merge_cells_title(sheet, "A1", "B2", 1, 1, "Summary Table", "center", "center", "00FFFF00")
+    merge_cells_title(sheet, "D1", f"{get_column_letter(max(charts_length))}2", 1, 4, "Summary Table Charts", "center", "center", '0000FF00')
 
     wb.save(newfile)
 
-    sheet_name = "Plugin Family & Severity"
+    sheet_name = "Plugin Family"
     with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
         sheet = sheet_name
         new_row = 3
@@ -246,16 +274,17 @@ def main():
 
     wb = load_workbook(newfile)
     sheet = wb[sheet_name]
-    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_1_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
-    merge_cells_title(sheet, f"{get_column_letter(pivot_table_1_wide_columns+3)}1", "AH2", 1, pivot_table_1_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
     min_row_table = 4
     max_row_table = min_row_table + pivot_table_1_wide_rows
-    pivot_table_1_wide_chart = barchart_creation(sheet, 50.5, 30, "col", "Severity and Plugin Family", "Family", "Count", 2, pivot_table_1_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_1_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+    pivot_table_1_wide_chart = barchart_creation(sheet, "col", "Severity and Plugin Family", "Family", "Count", 2, pivot_table_1_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_1_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+    
+    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_1_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
+    merge_cells_title(sheet, f"{get_column_letter(pivot_table_1_wide_columns+3)}1", f"{get_column_letter(pivot_table_1_wide_columns+3+round(pivot_table_1_wide_chart.width / 1.7))}2", 1, pivot_table_1_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
     wb.save(newfile)
 
-    sheet_name = "Asset Group & Severity"
+    sheet_name = "Asset Group"
     with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
         sheet = sheet_name
         new_row = 3
@@ -272,16 +301,17 @@ def main():
 
     wb = load_workbook(newfile)
     sheet = wb[sheet_name]
-    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_2_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
-    merge_cells_title(sheet, f"{get_column_letter(pivot_table_2_wide_columns+3)}1", "AH2", 1, pivot_table_2_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
     min_row_table = 4
     max_row_table = min_row_table + pivot_table_2_wide_rows
-    pivot_table_2_wide_chart = barchart_creation(sheet, 50.5, 30, "col", "Severity and Asset Group", "Asset Group", "Count", 2, pivot_table_2_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_2_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+    pivot_table_2_wide_chart = barchart_creation(sheet, "col", "Severity and Asset Group", "Asset Group", "Count", 2, pivot_table_2_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_2_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+    
+    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_2_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
+    merge_cells_title(sheet, f"{get_column_letter(pivot_table_2_wide_columns+3)}1", f"{get_column_letter(pivot_table_2_wide_columns+3+round(pivot_table_2_wide_chart.width / 1.7))}2", 1, pivot_table_2_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
     wb.save(newfile)
 
-    sheet_name = "Overdue & Severity"
+    sheet_name = "Overdue"
     with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
         sheet = sheet_name
         new_row = 3
@@ -298,16 +328,17 @@ def main():
 
     wb = load_workbook(newfile)
     sheet = wb[sheet_name]
-    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_3_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
-    merge_cells_title(sheet, f"{get_column_letter(pivot_table_3_wide_columns+3)}1", "O2", 1, pivot_table_3_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
     min_row_table = 4
     max_row_table = min_row_table + pivot_table_3_wide_rows
-    pivot_table_3_wide_chart = barchart_creation(sheet, 15, 30, "col", "Overdue and Plugin Family", "Family", "Count", 2, pivot_table_3_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_3_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+    pivot_table_3_wide_chart = barchart_creation(sheet, "col", "Overdue and Plugin Family", "Overdue", "Count", 2, pivot_table_3_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_3_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+    
+    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_3_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
+    merge_cells_title(sheet, f"{get_column_letter(pivot_table_3_wide_columns+3)}1", f"{get_column_letter(pivot_table_3_wide_columns+3+round(pivot_table_3_wide_chart.width / 1.7))}2", 1, pivot_table_3_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
     wb.save(newfile)
 
-    sheet_name = "Asset Grp, Family & Severity"
+    sheet_name = "Asset Grp & Family"
     with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
         sheet = sheet_name
         new_row = 3
@@ -324,12 +355,13 @@ def main():
 
     wb = load_workbook(newfile)
     sheet = wb[sheet_name]
-    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_4_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
-    merge_cells_title(sheet, f"{get_column_letter(pivot_table_4_wide_columns+3)}1", "AH2", 1, pivot_table_4_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
     min_row_table = 4
     max_row_table = min_row_table + pivot_table_4_wide_rows
-    pivot_table_4_wide_chart = barchart_creation(sheet, 300, 30, "col", "Asset Group, Plugin Family and Severity", "Family", "Count", 4, pivot_table_4_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_4_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+    pivot_table_4_wide_chart = barchart_creation(sheet, "col", "Asset Group, Plugin Family and Severity", "Asset Group - Plugin Family", "Count", 4, pivot_table_4_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_4_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+    
+    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_4_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
+    merge_cells_title(sheet, f"{get_column_letter(pivot_table_4_wide_columns+3)}1", f"{get_column_letter(pivot_table_4_wide_columns+3+round(pivot_table_4_wide_chart.width / 1.7))}2", 1, pivot_table_4_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
     wb.save(newfile)
 
