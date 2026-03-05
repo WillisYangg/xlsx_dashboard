@@ -18,6 +18,9 @@ new_file_name = "dummy_data"
 raw_df = pd.read_excel(f"{new_file_name}_raw.xlsx")
 df = raw_df.copy()
 
+############################
+### Function Definitions ###
+############################
 # Excel Generation function
 def generate_excel(destination, excel_sheet_name, df, header_row):
     with pd.ExcelWriter(destination, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
@@ -33,54 +36,11 @@ def generate_excel(destination, excel_sheet_name, df, header_row):
 
         ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
 
-# insert 'scan' column defined based on the value in 'port'
-target_position = df.columns.get_loc('port') + 1
-target_values = np.where(df['port'] != 0, 'Network Scan', 'Agent Scan')
-df.insert(loc=target_position, column='scan', value=target_values)
-
-newfile = f"{new_file_name}.xlsx"
-if os.path.exists(newfile):
-    os.remove(newfile)
-empty_df = pd.DataFrame()
-empty_df.to_excel(newfile, sheet_name="Overdue Vulnerabilities")
-severity_thresholds = {"Critical": 60, "High": 60, "Medium": 90, "Low": 90}
-
-# time columns conversion
-df['patch_publication_date'] = pd.to_datetime(df['patch_publication_date'], format = "%d/%m/%Y %H:%M:%S")
-df['first_observed_date'] = pd.to_datetime(df['first_observed_date'], format="%d/%m/%Y %H:%M:%S")
-
-# create a new column for today's date
-df['comparison_date'] = pd.to_datetime(today, format="%d/%m/%Y %H:%M:%S")
-
-# create a new column to calculate the difference in days
-for idx, row in df.iterrows():
-    if pd.isnull(row['patch_publication_date']):
-        df.at[idx, "difference"] = (row['comparison_date'] - row['first_observed_date']).days
-    else:
-        df.at[idx, "difference"] = (row['comparison_date'] - row['patch_publication_date']).days
-
-# create a new column to apply the overdue flah (Y or N)
-df["overdue"] = df.apply(
-    lambda row: "Y" if row["difference"] > severity_thresholds[row["severity"]] else "N",
-    axis=1
-)
-
-# create a column to calculate the number of days overdue
-df["overdue (days)"] = df.apply(
-    lambda row: "" if row["overdue"] == "N" else row["difference"] - severity_thresholds[row["severity"]],
-    axis=1
-)
-
-overdue_df = df.loc[df['overdue'] == 'Y'].reset_index(drop=True)
-non_overdue_df = df.loc[df['overdue'] == 'N'].reset_index(drop=True)
-
-# place this new table with additional columns into a new sheet
-sheet_name = "Overdue Vulnerabilities"
-generate_excel(newfile, sheet_name, overdue_df, 1)
-sheet_name = "Non-Overdue Vulnerabilities"
-generate_excel(newfile, sheet_name, non_overdue_df, 1)
-sheet_name = "Original Vulnerabilities"
-generate_excel(newfile, sheet_name, raw_df, 1)
+# Excel Clickable Link function (for clicking and changing to the relevant sheet)
+def excel_clickable_cell(val, sheet, cell="A1"):
+    if val is None or str(val).strip() == "":
+        return val
+    return f'=HYPERLINK("#\'{sheet}\'!{cell}", "{val}")'
 
 # Chart functions
 def merge_cells_title(sheet, cell1, cell2, row_no, col, val, horizontal_val, vertical_val, color):
@@ -89,6 +49,10 @@ def merge_cells_title(sheet, cell1, cell2, row_no, col, val, horizontal_val, ver
     cell.value = val
     cell.alignment = Alignment(horizontal=horizontal_val, vertical=vertical_val)
     cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+
+def hyperlink_cell(ws, first_data_row, last_data_row):
+    for row in range(first_data_row, last_data_row + 1):
+        ws.cell(row=row, column=1).style = "Hyperlink"
 
 def univariate_table(df, variable, top_n=5):
     counts = df[variable].value_counts().reset_index()
@@ -113,7 +77,7 @@ def pivot_table(df, index_col, col, val):
     pivot_table_df.columns = new_cols
     return pivot_table_df
 
-def pivot_table_wide(df, index_col, col, val):
+def pivot_table_wide(df, index_col, col, val, sheet=None, cell=None):
     column_order = ["Critical", "High", "Medium", "Low"]
     pivot_df = pivot_table(df, index_col, col, val)
     pivot_df_wide = (
@@ -201,6 +165,56 @@ def piechart_creation(sheet, shape, variable, min_col, min_row, max_row, max_col
     chart.height = 7 + (num_categories * 0.1)
     sheet.add_chart(chart, cell)
     return chart
+############################
+
+# insert 'scan' column defined based on the value in 'port'
+target_position = df.columns.get_loc('port') + 1
+target_values = np.where(df['port'] != 0, 'Network Scan', 'Agent Scan')
+df.insert(loc=target_position, column='scan', value=target_values)
+
+newfile = f"{new_file_name}.xlsx"
+if os.path.exists(newfile):
+    os.remove(newfile)
+empty_df = pd.DataFrame()
+empty_df.to_excel(newfile, sheet_name="Overdue Vulnerabilities")
+severity_thresholds = {"Critical": 60, "High": 60, "Medium": 90, "Low": 90}
+
+# time columns conversion
+df['patch_publication_date'] = pd.to_datetime(df['patch_publication_date'], format = "%d/%m/%Y %H:%M:%S")
+df['first_observed_date'] = pd.to_datetime(df['first_observed_date'], format="%d/%m/%Y %H:%M:%S")
+
+# create a new column for today's date
+df['comparison_date'] = pd.to_datetime(today, format="%d/%m/%Y %H:%M:%S")
+
+# create a new column to calculate the difference in days
+for idx, row in df.iterrows():
+    if pd.isnull(row['patch_publication_date']):
+        df.at[idx, "difference"] = (row['comparison_date'] - row['first_observed_date']).days
+    else:
+        df.at[idx, "difference"] = (row['comparison_date'] - row['patch_publication_date']).days
+
+# create a new column to apply the overdue flah (Y or N)
+df["overdue"] = df.apply(
+    lambda row: "Y" if row["difference"] > severity_thresholds[row["severity"]] else "N",
+    axis=1
+)
+
+# create a column to calculate the number of days overdue
+df["overdue (days)"] = df.apply(
+    lambda row: "" if row["overdue"] == "N" else row["difference"] - severity_thresholds[row["severity"]],
+    axis=1
+)
+
+overdue_df = df.loc[df['overdue'] == 'Y'].reset_index(drop=True)
+non_overdue_df = df.loc[df['overdue'] == 'N'].reset_index(drop=True)
+
+# place this new table with additional columns into a new sheet
+sheet_name = "Overdue Vulnerabilities"
+generate_excel(newfile, sheet_name, overdue_df, 1)
+sheet_name = "Non-Overdue Vulnerabilities"
+generate_excel(newfile, sheet_name, non_overdue_df, 1)
+sheet_name = "Original Vulnerabilities"
+generate_excel(newfile, sheet_name, raw_df, 1)
 
 def main():
     family_vul, family_vul_rows, family_vul_columns = univariate_table(df, 'plugin_family')
@@ -212,6 +226,7 @@ def main():
     pivot_table_1_wide, pivot_table_1_wide_rows, pivot_table_1_wide_columns = pivot_table_wide(df, "plugin_family", "severity", "plugin_id")
     pivot_table_2_wide, pivot_table_2_wide_rows, pivot_table_2_wide_columns = pivot_table_wide(df, "asset_group", "severity", "plugin_id")
     pivot_table_3_wide, pivot_table_3_wide_rows, pivot_table_3_wide_columns = pivot_table_wide(df, "overdue", "severity", "plugin_id")
+    pivot_table_3_wide['overdue'] = np.where(pivot_table_3_wide['overdue'] == "Y", pivot_table_3_wide['overdue'].apply(excel_clickable_cell, sheet="Overdue Vulnerabilities"), pivot_table_3_wide['overdue'].apply(excel_clickable_cell, sheet="Non-Overdue Vulnerabilities"))
     pivot_table_4_wide, pivot_table_4_wide_rows, pivot_table_4_wide_columns = pivot_table_wide(df, ["asset_group", "plugin_family"], "severity", "plugin_id")
 
     sheet_name = "Uni-Variate Summary Table"
@@ -325,6 +340,7 @@ def main():
         last_col = pivot_table_3_wide_columns
 
         ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
+        hyperlink_cell(ws, first_data_row, last_data_row)
 
     wb = load_workbook(newfile)
     sheet = wb[sheet_name]
