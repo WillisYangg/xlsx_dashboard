@@ -262,7 +262,7 @@ df["overdue (days)"] = df.apply(
 overdue_df = df.loc[df['overdue'] == 'Y'].reset_index(drop=True)
 non_overdue_df = df.loc[df['overdue'] == 'N'].reset_index(drop=True)
 
-raw_df = raw_df.sort_values(by="asset_group").reset_index(drop=True)
+raw_df = raw_df.sort_values(by=["asset_group", "plugin_family"]).reset_index(drop=True)
 new_group_rows = raw_df.index[raw_df["asset_group"].ne(raw_df["asset_group"].shift())]
 new_group_dict = {raw_df.loc[idx, "asset_group"]: idx+2 for idx in new_group_rows} # retrieve the rows that the new asset_group start at in the table for hyperlink later on, +2 because of pandas indexing and header row
 
