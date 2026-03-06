@@ -36,6 +36,60 @@ def generate_excel(destination, excel_sheet_name, df, header_row):
 
         ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
 
+# def generate_detailed_sheet_with_slicers(destination, df, excel_sheet_name):
+#     writer = pd.ExcelWriter(destination, engine='xlsxwriter')
+#     df.to_excel(writer, sheet_name=excel_sheet_name, index=False)
+    
+#     workbook  = writer.book
+#     worksheet = writer.sheets[excel_sheet_name]
+#     (max_row, max_col) = df.shape
+
+#     worksheet.add_table(0, 0, max_row, max_col - 1, {
+#         'columns': [{'header': col} for col in df.columns],
+#         'name': 'Original Table',
+#         'style': 'TableStyleMedium9'
+#     })
+
+#     worksheet.add_slicer({
+#         'table': 'Original Table',
+#         'column': 'plugin_family',
+#         'name': 'FamilyFilter',
+#         'caption': 'Plugin Family Filter',
+#         'row': 1,
+#         'col': max_col + 1,
+#         'width': 200,
+#         'height': 400
+#     })
+#     writer.close()
+
+# Apply color to the different groups for differentiation
+def apply_group_colors(destination, sheet_name):
+    wb = load_workbook(destination)
+    ws = wb[sheet_name]
+
+    colors = [
+        PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid"),
+        PatternFill(start_color="CCE5FF", end_color="CCE5FF", fill_type="solid"),
+        PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid"),
+        PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    ]
+
+    last_group = None
+    color_idx = -1
+
+    for row_num in range(2, ws.max_row + 1):
+        current_group = ws.cell(row=row_num, column=4).value
+        
+        if current_group != last_group:
+            color_idx = (color_idx + 1) % len(colors)
+            
+        for col_num in range(1, ws.max_column + 1):
+            ws.cell(row=row_num, column=col_num).fill = colors[color_idx]
+            
+        last_group = current_group
+
+    wb.save(destination)
+
 # Excel Clickable Link function (for clicking and changing to the relevant sheet)
 def excel_clickable_cell(val, sheet, cell="A1"):
     if val is None or str(val).strip() == "":
@@ -208,6 +262,10 @@ df["overdue (days)"] = df.apply(
 overdue_df = df.loc[df['overdue'] == 'Y'].reset_index(drop=True)
 non_overdue_df = df.loc[df['overdue'] == 'N'].reset_index(drop=True)
 
+raw_df = raw_df.sort_values(by="asset_group").reset_index(drop=True)
+new_group_rows = raw_df.index[raw_df["asset_group"].ne(raw_df["asset_group"].shift())]
+new_group_dict = {raw_df.loc[idx, "asset_group"]: idx+2 for idx in new_group_rows} # retrieve the rows that the new asset_group start at in the table for hyperlink later on, +2 because of pandas indexing and header row
+
 # place this new table with additional columns into a new sheet
 sheet_name = "Overdue Vulnerabilities"
 generate_excel(newfile, sheet_name, overdue_df, 1)
@@ -215,6 +273,8 @@ sheet_name = "Non-Overdue Vulnerabilities"
 generate_excel(newfile, sheet_name, non_overdue_df, 1)
 sheet_name = "Original Vulnerabilities"
 generate_excel(newfile, sheet_name, raw_df, 1)
+apply_group_colors(newfile, sheet_name)
+# generate_detailed_sheet_with_slicers(newfile, raw_df, sheet_name)
 
 def main():
     family_vul, family_vul_rows, family_vul_columns = univariate_table(df, 'plugin_family')
@@ -225,6 +285,7 @@ def main():
     barchart_start_column = get_column_letter(barchart_start_column_value)
     pivot_table_1_wide, pivot_table_1_wide_rows, pivot_table_1_wide_columns = pivot_table_wide(df, "plugin_family", "severity", "plugin_id")
     pivot_table_2_wide, pivot_table_2_wide_rows, pivot_table_2_wide_columns = pivot_table_wide(df, "asset_group", "severity", "plugin_id")
+    pivot_table_2_wide['asset_group'] = pivot_table_2_wide['asset_group'].apply(lambda x: excel_clickable_cell(x, sheet="Original Vulnerabilities", cell=f"A{new_group_dict.get(x, 1)}"))
     pivot_table_3_wide, pivot_table_3_wide_rows, pivot_table_3_wide_columns = pivot_table_wide(df, "overdue", "severity", "plugin_id")
     pivot_table_3_wide['overdue'] = np.where(pivot_table_3_wide['overdue'] == "Y", pivot_table_3_wide['overdue'].apply(excel_clickable_cell, sheet="Overdue Vulnerabilities"), pivot_table_3_wide['overdue'].apply(excel_clickable_cell, sheet="Non-Overdue Vulnerabilities"))
     pivot_table_4_wide, pivot_table_4_wide_rows, pivot_table_4_wide_columns = pivot_table_wide(df, ["asset_group", "plugin_family"], "severity", "plugin_id")
@@ -313,6 +374,7 @@ def main():
         last_col = pivot_table_2_wide_columns
 
         ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
+        hyperlink_cell(ws, first_data_row, last_data_row)
 
     wb = load_workbook(newfile)
     sheet = wb[sheet_name]
