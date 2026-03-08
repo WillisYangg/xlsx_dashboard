@@ -104,9 +104,9 @@ def merge_cells_title(sheet, cell1, cell2, row_no, col, val, horizontal_val, ver
     cell.alignment = Alignment(horizontal=horizontal_val, vertical=vertical_val)
     cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
 
-def hyperlink_cell(ws, first_data_row, last_data_row):
+def hyperlink_cell(ws, first_data_row, last_data_row, column_no=1):
     for row in range(first_data_row, last_data_row + 1):
-        ws.cell(row=row, column=1).style = "Hyperlink"
+        ws.cell(row=row, column=column_no).style = "Hyperlink"
 
 def univariate_table(df, variable, top_n=5):
     counts = df[variable].value_counts().reset_index()
@@ -263,8 +263,14 @@ overdue_df = df.loc[df['overdue'] == 'Y'].reset_index(drop=True)
 non_overdue_df = df.loc[df['overdue'] == 'N'].reset_index(drop=True)
 
 raw_df = raw_df.sort_values(by=["asset_group", "plugin_family"]).reset_index(drop=True)
-new_group_rows = raw_df.index[raw_df["asset_group"].ne(raw_df["asset_group"].shift())]
-new_group_dict = {raw_df.loc[idx, "asset_group"]: idx+2 for idx in new_group_rows} # retrieve the rows that the new asset_group start at in the table for hyperlink later on, +2 because of pandas indexing and header row
+asset_group_rows = raw_df.index[raw_df["asset_group"].ne(raw_df["asset_group"].shift())]
+# print(asset_group_rows)
+asset_group_family_rows = raw_df.index[raw_df[["asset_group", "plugin_family"]].ne(raw_df[["asset_group", "plugin_family"]].shift()).any(axis=1)]
+# print(asset_group_family_rows)
+asset_group_dict = {raw_df.loc[idx, "asset_group"]: idx+2 for idx in asset_group_rows} # retrieve the rows that the new asset_group start at in the table for hyperlink later on, +2 because of pandas indexing and header row
+# print(asset_group_dict)
+asset_group_family_dict = {f"{raw_df.loc[idx, 'asset_group']} - {raw_df.loc[idx, 'plugin_family']}": idx+2 for idx in asset_group_family_rows}
+# print(asset_group_family_dict)
 
 # place this new table with additional columns into a new sheet
 sheet_name = "Overdue Vulnerabilities"
@@ -285,10 +291,11 @@ def main():
     barchart_start_column = get_column_letter(barchart_start_column_value)
     pivot_table_1_wide, pivot_table_1_wide_rows, pivot_table_1_wide_columns = pivot_table_wide(df, "plugin_family", "severity", "plugin_id")
     pivot_table_2_wide, pivot_table_2_wide_rows, pivot_table_2_wide_columns = pivot_table_wide(df, "asset_group", "severity", "plugin_id")
-    pivot_table_2_wide['asset_group'] = pivot_table_2_wide['asset_group'].apply(lambda x: excel_clickable_cell(x, sheet="Original Vulnerabilities", cell=f"A{new_group_dict.get(x, 1)}"))
+    pivot_table_2_wide['asset_group'] = pivot_table_2_wide['asset_group'].apply(lambda x: excel_clickable_cell(x, sheet="Original Vulnerabilities", cell=f"A{asset_group_dict.get(x, 1)}"))
     pivot_table_3_wide, pivot_table_3_wide_rows, pivot_table_3_wide_columns = pivot_table_wide(df, "overdue", "severity", "plugin_id")
     pivot_table_3_wide['overdue'] = np.where(pivot_table_3_wide['overdue'] == "Y", pivot_table_3_wide['overdue'].apply(excel_clickable_cell, sheet="Overdue Vulnerabilities"), pivot_table_3_wide['overdue'].apply(excel_clickable_cell, sheet="Non-Overdue Vulnerabilities"))
     pivot_table_4_wide, pivot_table_4_wide_rows, pivot_table_4_wide_columns = pivot_table_wide(df, ["asset_group", "plugin_family"], "severity", "plugin_id")
+    pivot_table_4_wide['Label'] = pivot_table_4_wide['Label'].apply(lambda x: excel_clickable_cell(x, sheet="Original Vulnerabilities", cell=f"A{asset_group_family_dict.get(x, 1)}"))
 
     sheet_name = "Uni-Variate Summary Table"
     with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
@@ -430,6 +437,7 @@ def main():
         last_col = pivot_table_4_wide_columns
 
         ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
+        hyperlink_cell(ws, first_data_row, last_data_row, column_no=3)
 
     wb = load_workbook(newfile)
     sheet = wb[sheet_name]
