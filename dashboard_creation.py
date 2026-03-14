@@ -21,6 +21,16 @@ df = raw_df.copy()
 ############################
 ### Function Definitions ###
 ############################
+from openpyxl.utils import get_column_letter
+
+def autosize_df_columns(ws, df, start_col=1):
+    for i, col in enumerate(df.columns, start=start_col):
+        max_length = len(str(col))
+        for val in df[col]:
+            if val is not None:
+                max_length = max(max_length, len(str(val)))
+        ws.column_dimensions[get_column_letter(i)].width = max_length + 2
+
 # Excel Generation function
 def generate_excel(destination, excel_sheet_name, df, header_row):
     with pd.ExcelWriter(destination, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
@@ -36,47 +46,22 @@ def generate_excel(destination, excel_sheet_name, df, header_row):
 
         ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
 
-# def generate_detailed_sheet_with_slicers(destination, df, excel_sheet_name):
-#     writer = pd.ExcelWriter(destination, engine='xlsxwriter')
-#     df.to_excel(writer, sheet_name=excel_sheet_name, index=False)
-    
-#     workbook  = writer.book
-#     worksheet = writer.sheets[excel_sheet_name]
-#     (max_row, max_col) = df.shape
-
-#     worksheet.add_table(0, 0, max_row, max_col - 1, {
-#         'columns': [{'header': col} for col in df.columns],
-#         'name': 'Original Table',
-#         'style': 'TableStyleMedium9'
-#     })
-
-#     worksheet.add_slicer({
-#         'table': 'Original Table',
-#         'column': 'plugin_family',
-#         'name': 'FamilyFilter',
-#         'caption': 'Plugin Family Filter',
-#         'row': 1,
-#         'col': max_col + 1,
-#         'width': 200,
-#         'height': 400
-#     })
-#     writer.close()
+        wb = writer.book
+        ws = wb[sheet]
+        autosize_df_columns(ws, df)
 
 # Apply color to the different groups for differentiation
 def apply_group_colors(destination, sheet_name):
     wb = load_workbook(destination)
     ws = wb[sheet_name]
-
     colors = [
         PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid"),
         PatternFill(start_color="CCE5FF", end_color="CCE5FF", fill_type="solid"),
         PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid"),
         PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
     ]
-
     last_group = None
     color_idx = -1
-
     for row_num in range(2, ws.max_row + 1):
         current_group = ws.cell(row=row_num, column=4).value
         
@@ -87,7 +72,6 @@ def apply_group_colors(destination, sheet_name):
             ws.cell(row=row_num, column=col_num).fill = colors[color_idx]
             
         last_group = current_group
-
     wb.save(destination)
 
 # Excel Clickable Link function (for clicking and changing to the relevant sheet)
@@ -297,7 +281,7 @@ def main():
     pivot_table_4_wide, pivot_table_4_wide_rows, pivot_table_4_wide_columns = pivot_table_wide(df, ["asset_group", "plugin_family"], "severity", "plugin_id")
     pivot_table_4_wide['Label'] = pivot_table_4_wide['Label'].apply(lambda x: excel_clickable_cell(x, sheet="Original Vulnerabilities", cell=f"A{asset_group_family_dict.get(x, 1)}"))
 
-    sheet_name = "Uni-Variate Summary Table"
+    sheet_name = "Summary"
     with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
         sheet = sheet_name
         new_row = 3
@@ -308,6 +292,11 @@ def main():
         asset_group_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
         new_row = new_row + asset_group_vul_rows + 2
         overdue_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
+
+        wb = writer.book
+        ws = wb[sheet]
+        autosize_df_columns(ws, family_vul)
+        wb.move_sheet(ws, offset=-wb.sheetnames.index(sheet))
 
     wb = load_workbook(newfile)
     sheet = wb[sheet_name]
@@ -355,6 +344,10 @@ def main():
 
         ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
 
+        wb = writer.book
+        ws = wb[sheet]
+        autosize_df_columns(ws, pivot_table_1_wide)
+
     wb = load_workbook(newfile)
     sheet = wb[sheet_name]
 
@@ -382,6 +375,10 @@ def main():
 
         ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
         hyperlink_cell(ws, first_data_row, last_data_row)
+
+        wb = writer.book
+        ws = wb[sheet]
+        autosize_df_columns(ws, pivot_table_2_wide)
 
     wb = load_workbook(newfile)
     sheet = wb[sheet_name]
@@ -411,6 +408,10 @@ def main():
         ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
         hyperlink_cell(ws, first_data_row, last_data_row)
 
+        wb = writer.book
+        ws = wb[sheet]
+        autosize_df_columns(ws, pivot_table_3_wide)
+
     wb = load_workbook(newfile)
     sheet = wb[sheet_name]
 
@@ -438,6 +439,10 @@ def main():
 
         ws.auto_filter.ref = f"{get_column_letter(start_col)}{header_row}:{get_column_letter(last_col)}{last_data_row}"
         hyperlink_cell(ws, first_data_row, last_data_row, column_no=3)
+
+        wb = writer.book
+        ws = wb[sheet]
+        autosize_df_columns(ws, pivot_table_4_wide)
 
     wb = load_workbook(newfile)
     sheet = wb[sheet_name]
