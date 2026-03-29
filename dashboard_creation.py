@@ -3,6 +3,7 @@ import numpy as np
 import seaborn as sb
 import matplotlib.pyplot as plt
 import os
+import shutil
 import openpyxl
 from openpyxl.utils import get_column_letter
 from openpyxl import load_workbook
@@ -13,16 +14,9 @@ from openpyxl.styles import PatternFill, Font
 import xlwings as xw
 from datetime import datetime
 
-today = datetime.today()
-new_file_name = "dummy_data"
-raw_df = pd.read_excel(f"{new_file_name}_raw.xlsx")
-df = raw_df.copy()
-
 ############################
 ### Function Definitions ###
 ############################
-from openpyxl.utils import get_column_letter
-
 def autosize_df_columns(ws, df, start_col=1):
     for i, col in enumerate(df.columns, start=start_col):
         max_length = len(str(col))
@@ -33,7 +27,8 @@ def autosize_df_columns(ws, df, start_col=1):
 
 # Excel Generation function
 def generate_excel(destination, excel_sheet_name, df, header_row):
-    with pd.ExcelWriter(destination, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+    book = load_workbook(destination, keep_vba=True)
+    with pd.ExcelWriter(destination, engine='openpyxl', mode='a', if_sheet_exists='overlay', engine_kwargs={"keep_vba": True}) as writer:
         sheet = excel_sheet_name
         df.to_excel(writer, sheet_name=sheet, index=False)
         ws = writer.sheets[sheet]
@@ -50,9 +45,16 @@ def generate_excel(destination, excel_sheet_name, df, header_row):
         ws = wb[sheet]
         autosize_df_columns(ws, df)
 
+# delete sheet in excel sheet function
+def delete_excel_sheet(destination, excel_sheet_name):
+    wb = load_workbook(destination, keep_vba=True)
+    if excel_sheet_name in wb.sheetnames:
+        del wb[excel_sheet_name]
+    wb.save(destination)
+
 # Apply color to the different groups for differentiation
 def apply_group_colors(destination, sheet_name):
-    wb = load_workbook(destination)
+    wb = load_workbook(destination, keep_vba=True)
     ws = wb[sheet_name]
     colors = [
         PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid"),
@@ -205,16 +207,21 @@ def piechart_creation(sheet, shape, variable, min_col, min_row, max_row, max_col
     return chart
 ############################
 
+today = datetime.today()
+new_file_name = "dummy_data"
+raw_df = pd.read_excel(f"{new_file_name}_raw.xlsx")
+df = raw_df.copy()
+
 # insert 'scan' column defined based on the value in 'port'
 target_position = df.columns.get_loc('port') + 1
 target_values = np.where(df['port'] != 0, 'Network Scan', 'Agent Scan')
 df.insert(loc=target_position, column='scan', value=target_values)
 
-newfile = f"{new_file_name}.xlsx"
+newfile = f"{new_file_name}.xlsm"
 if os.path.exists(newfile):
     os.remove(newfile)
-empty_df = pd.DataFrame()
-empty_df.to_excel(newfile, sheet_name="Overdue Vulnerabilities")
+source_file = "./template.xlsm"
+shutil.copy(source_file, newfile)
 severity_thresholds = {"Critical": 60, "High": 60, "Medium": 90, "Low": 90}
 
 # time columns conversion
@@ -264,7 +271,7 @@ generate_excel(newfile, sheet_name, non_overdue_df, 1)
 sheet_name = "Original Vulnerabilities"
 generate_excel(newfile, sheet_name, raw_df, 1)
 apply_group_colors(newfile, sheet_name)
-# generate_detailed_sheet_with_slicers(newfile, raw_df, sheet_name)
+delete_excel_sheet(newfile, "Sheet1")
 
 def main():
     family_vul, family_vul_rows, family_vul_columns = univariate_table(df, 'plugin_family')
@@ -282,7 +289,8 @@ def main():
     pivot_table_4_wide['Label'] = pivot_table_4_wide['Label'].apply(lambda x: excel_clickable_cell(x, sheet="Original Vulnerabilities", cell=f"A{asset_group_family_dict.get(x, 1)}"))
 
     sheet_name = "Summary"
-    with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
+    book = load_workbook(newfile, keep_vba=True)
+    with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay", engine_kwargs={"keep_vba": True}) as writer:
         sheet = sheet_name
         new_row = 3
         family_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
@@ -298,7 +306,7 @@ def main():
         autosize_df_columns(ws, family_vul)
         wb.move_sheet(ws, offset=-wb.sheetnames.index(sheet))
 
-    wb = load_workbook(newfile)
+    wb = load_workbook(newfile, keep_vba=True)
     sheet = wb[sheet_name]
 
     charts_length = []
@@ -330,7 +338,8 @@ def main():
     wb.save(newfile)
 
     sheet_name = "Plugin Family"
-    with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
+    book = load_workbook(newfile, keep_vba=True)
+    with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay", engine_kwargs={"keep_vba": True}) as writer:
         sheet = sheet_name
         new_row = 3
         pivot_table_1_wide.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
@@ -348,7 +357,7 @@ def main():
         ws = wb[sheet]
         autosize_df_columns(ws, pivot_table_1_wide)
 
-    wb = load_workbook(newfile)
+    wb = load_workbook(newfile, keep_vba=True)
     sheet = wb[sheet_name]
 
     min_row_table = 4
@@ -361,7 +370,8 @@ def main():
     wb.save(newfile)
 
     sheet_name = "Asset Group"
-    with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
+    book = load_workbook(newfile, keep_vba=True)
+    with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay", engine_kwargs={"keep_vba": True}) as writer:
         sheet = sheet_name
         new_row = 3
         pivot_table_2_wide.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
@@ -380,7 +390,7 @@ def main():
         ws = wb[sheet]
         autosize_df_columns(ws, pivot_table_2_wide)
 
-    wb = load_workbook(newfile)
+    wb = load_workbook(newfile, keep_vba=True)
     sheet = wb[sheet_name]
 
     min_row_table = 4
@@ -393,7 +403,8 @@ def main():
     wb.save(newfile)
 
     sheet_name = "Overdue"
-    with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
+    book = load_workbook(newfile, keep_vba=True)
+    with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay", engine_kwargs={"keep_vba": True}) as writer:
         sheet = sheet_name
         new_row = 3
         pivot_table_3_wide.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
@@ -412,7 +423,7 @@ def main():
         ws = wb[sheet]
         autosize_df_columns(ws, pivot_table_3_wide)
 
-    wb = load_workbook(newfile)
+    wb = load_workbook(newfile, keep_vba=True)
     sheet = wb[sheet_name]
 
     min_row_table = 4
@@ -425,7 +436,8 @@ def main():
     wb.save(newfile)
 
     sheet_name = "Asset Grp & Family"
-    with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
+    book = load_workbook(newfile, keep_vba=True)
+    with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay", engine_kwargs={"keep_vba": True}) as writer:
         sheet = sheet_name
         new_row = 3
         pivot_table_4_wide.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
@@ -444,7 +456,7 @@ def main():
         ws = wb[sheet]
         autosize_df_columns(ws, pivot_table_4_wide)
 
-    wb = load_workbook(newfile)
+    wb = load_workbook(newfile, keep_vba=True)
     sheet = wb[sheet_name]
 
     min_row_table = 4
