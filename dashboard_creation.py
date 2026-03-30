@@ -244,14 +244,12 @@ df["overdue"] = df.apply(
     axis=1
 )
 
-# create a column to calculate the number of days overdue
-df["overdue (days)"] = df.apply(
-    lambda row: "" if row["overdue"] == "N" else row["difference"] - severity_thresholds[row["severity"]],
-    axis=1
-)
-
 overdue_df = df.loc[df['overdue'] == 'Y'].reset_index(drop=True)
 non_overdue_df = df.loc[df['overdue'] == 'N'].reset_index(drop=True)
+
+# create a column to calculate the number of days overdue/days to overdue
+overdue_df["Days Overdued By (Days)"] = overdue_df['difference'] - overdue_df['severity'].map(severity_thresholds)
+non_overdue_df["Days to Overdue (Days)"] = non_overdue_df['severity'].map(severity_thresholds) - non_overdue_df['difference']
 
 raw_df = raw_df.sort_values(by=["asset_group", "plugin_family"]).reset_index(drop=True)
 asset_group_rows = raw_df.index[raw_df["asset_group"].ne(raw_df["asset_group"].shift())]
@@ -277,7 +275,9 @@ def main():
     family_vul, family_vul_rows, family_vul_columns = univariate_table(df, 'plugin_family')
     severity_vul, severity_vul_rows, severity_vul_columns = univariate_table(df, 'severity')
     asset_group_vul, asset_group_vul_rows, asset_group_vul_columns = univariate_table(df, 'asset_group')
+    asset_group_vul['asset_group'] = asset_group_vul['asset_group'].apply(lambda x: excel_clickable_cell(x, sheet="Original Vulnerabilities", cell=f"A{asset_group_dict.get(x, 1)}"))
     overdue_vul, overdue_vul_rows, overdue_vul_columns = univariate_table(df, 'overdue')
+    overdue_vul['overdue'] = np.where(overdue_vul['overdue'] == "Y", overdue_vul['overdue'].apply(excel_clickable_cell, sheet="Overdue Vulnerabilities"), overdue_vul['overdue'].apply(excel_clickable_cell, sheet="Non-Overdue Vulnerabilities"))
     barchart_start_column_value = family_vul_columns+2
     barchart_start_column = get_column_letter(barchart_start_column_value)
     pivot_table_1_wide, pivot_table_1_wide_rows, pivot_table_1_wide_columns = pivot_table_wide(df, "plugin_family", "severity", "plugin_id")
@@ -293,13 +293,22 @@ def main():
     with pd.ExcelWriter(newfile, engine="openpyxl", mode="a", if_sheet_exists="overlay", engine_kwargs={"keep_vba": True}) as writer:
         sheet = sheet_name
         new_row = 3
-        family_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
-        new_row = new_row + family_vul_rows + 2
+        overdue_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
+        ws = writer.sheets[sheet]
+        header_row = new_row+1
+        first_data_row = header_row+1
+        last_data_row = header_row+overdue_vul_rows
+        hyperlink_cell(ws, first_data_row, last_data_row)
+        new_row = new_row + overdue_vul_rows + 2
         severity_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
         new_row = new_row + severity_vul_rows + 2
         asset_group_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
+        header_row = new_row+1
+        first_data_row = header_row+1
+        last_data_row = header_row+asset_group_vul_rows
+        hyperlink_cell(ws, first_data_row, last_data_row)
         new_row = new_row + asset_group_vul_rows + 2
-        overdue_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
+        family_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
 
         wb = writer.book
         ws = wb[sheet]
@@ -312,11 +321,11 @@ def main():
     charts_length = []
 
     min_row_table = 4
-    max_row_table = min_row_table + family_vul_rows
-    family_vul_chart = barchart_creation(sheet, "col", "Family", "Family", "Count", 2, family_vul_columns, min_row_table, max_row_table, True, False, False, False, f"{barchart_start_column}4", chartStyle=10, shape=4)
-    family_vul_piechart = piechart_creation(sheet, 4, "Family", 2, min_row_table, max_row_table, family_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(family_vul_chart.width / 1.7)+1)}4")
-    charts_length.append(barchart_start_column_value + round(family_vul_chart.width / 1.7)+1+round(family_vul_piechart.width / 1.7))
-    min_row_table = min_row_table + family_vul_rows + 2
+    max_row_table = min_row_table + overdue_vul_rows
+    overdue_vul_chart = barchart_creation(sheet, "col", "Overdue", "Overdue", "Count", 2, overdue_vul_columns, min_row_table, max_row_table, True, False, False, False, f"{barchart_start_column}4", chartStyle=10, shape=4)
+    overdue_vul_piechart = piechart_creation(sheet, 4, "Overdue", 2, min_row_table, max_row_table, overdue_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(overdue_vul_chart.width / 1.7)+1)}4")
+    charts_length.append(barchart_start_column_value + round(overdue_vul_chart.width / 1.7)+1+round(overdue_vul_piechart.width / 1.7))
+    min_row_table = min_row_table + overdue_vul_rows + 2
     max_row_table = max_row_table + 2 + severity_vul_rows
     severity_vul_chart = barchart_creation(sheet, "col", "Severity", "Severity", "Count", 2, severity_vul_columns, min_row_table, max_row_table, True, False, False, False, f"{barchart_start_column}21", chartStyle=10, shape=4)
     severity_vul_piechart = piechart_creation(sheet, 4, "Severity", 2, min_row_table, max_row_table, severity_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(severity_vul_chart.width / 1.7)+1)}21")
@@ -327,13 +336,14 @@ def main():
     asset_group_vul_piechart = piechart_creation(sheet, 4, "Asset Group", 2, min_row_table, max_row_table, asset_group_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(asset_group_vul_chart.width / 1.7)+1)}38")
     charts_length.append(barchart_start_column_value + round(asset_group_vul_chart.width / 1.7)+1+round(asset_group_vul_piechart.width / 1.7))
     min_row_table = min_row_table + asset_group_vul_rows + 2
-    max_row_table = max_row_table + 2 + overdue_vul_rows
-    overdue_vul_chart = barchart_creation(sheet, "col", "Overdue", "Overdue", "Count", 2, overdue_vul_columns, min_row_table, max_row_table, True, False, False, False, f"{barchart_start_column}55", chartStyle=10, shape=4)
-    overdue_vul_piechart = piechart_creation(sheet, 4, "Overdue", 2, min_row_table, max_row_table, overdue_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(overdue_vul_chart.width / 1.7)+1)}55")
-    charts_length.append(barchart_start_column_value + round(overdue_vul_chart.width / 1.7)+1+round(overdue_vul_piechart.width / 1.7))
+    max_row_table = max_row_table + 2 + family_vul_rows
+    family_vul_chart = barchart_creation(sheet, "col", "Family", "Family", "Count", 2, family_vul_columns, min_row_table, max_row_table, True, False, False, False, f"{barchart_start_column}55", chartStyle=10, shape=4)
+    family_vul_piechart = piechart_creation(sheet, 4, "Family", 2, min_row_table, max_row_table, family_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(family_vul_chart.width / 1.7)+1)}55")
+    charts_length.append(barchart_start_column_value + round(family_vul_chart.width / 1.7)+1+round(family_vul_piechart.width / 1.7))
 
     merge_cells_title(sheet, "A1", "B2", 1, 1, "Summary Table", "center", "center", "00FFFF00")
     merge_cells_title(sheet, "D1", f"{get_column_letter(max(charts_length))}2", 1, 4, "Summary Table Charts", "center", "center", '0000FF00')
+    merge_cells_title(sheet, "A30", "B31", 30, 1, "Click here to see all variables", "center", "center", "FFCCCC")
 
     wb.save(newfile)
 
