@@ -97,6 +97,10 @@ def hyperlink_cell(ws, first_data_row, last_data_row, column_no=1):
 def univariate_table(df, variable, top_n=5):
     counts = df[variable].value_counts().reset_index()
     counts.columns = [variable, 'count']
+    if variable == 'severity':
+        severity_order = ['Critical', 'High', 'Medium', 'Low']
+        counts[variable] = pd.Categorical(counts[variable], categories=severity_order, ordered=True)
+        counts = counts.sort_values(by=variable)
     if len(counts) > top_n:
         sub_df = counts.head(top_n).copy()
         misc_count = counts.iloc[top_n:]['count'].sum()
@@ -227,6 +231,8 @@ severity_thresholds = {"Critical": 60, "High": 60, "Medium": 90, "Low": 90}
 # time columns conversion
 df['patch_publication_date'] = pd.to_datetime(df['patch_publication_date'], format = "%d/%m/%Y %H:%M:%S")
 df['first_observed_date'] = pd.to_datetime(df['first_observed_date'], format="%d/%m/%Y %H:%M:%S")
+df['last_observed_date'] = pd.to_datetime(df['last_observed_date'], format="%d/%m/%Y %H:%M:%S")
+df['Days Discovered (Days)'] = (df['last_observed_date'] - df['first_observed_date']).dt.days
 
 # create a new column for today's date
 df['comparison_date'] = pd.to_datetime(today, format="%d/%m/%Y %H:%M:%S")
@@ -244,12 +250,21 @@ df["overdue"] = df.apply(
     axis=1
 )
 
+df = df.drop('comparison_date', axis=1)
+
 overdue_df = df.loc[df['overdue'] == 'Y'].reset_index(drop=True)
 non_overdue_df = df.loc[df['overdue'] == 'N'].reset_index(drop=True)
+
+low_df = df.loc[df['severity']=='Low'].reset_index(drop=True)
+medium_df = df.loc[df['severity']=='Medium'].reset_index(drop=True)
+high_df = df.loc[df['severity']=='High'].reset_index(drop=True)
+critical_df = df.loc[df['severity']=='Critical'].reset_index(drop=True)
 
 # create a column to calculate the number of days overdue/days to overdue
 overdue_df["Days Overdued By (Days)"] = overdue_df['difference'] - overdue_df['severity'].map(severity_thresholds)
 non_overdue_df["Days to Overdue (Days)"] = non_overdue_df['severity'].map(severity_thresholds) - non_overdue_df['difference']
+overdue_df = overdue_df.drop('difference', axis=1)
+non_overdue_df = non_overdue_df.drop('difference', axis=1)
 
 raw_df = raw_df.sort_values(by=["asset_group", "plugin_family"]).reset_index(drop=True)
 asset_group_rows = raw_df.index[raw_df["asset_group"].ne(raw_df["asset_group"].shift())]
@@ -269,11 +284,20 @@ generate_excel(newfile, sheet_name, non_overdue_df, 1)
 sheet_name = "Original Vulnerabilities"
 generate_excel(newfile, sheet_name, raw_df, 1)
 apply_group_colors(newfile, sheet_name)
+sheet_name = "Low Vulnerabilities"
+generate_excel(newfile, sheet_name, low_df, 1)
+sheet_name = "Medium Vulnerabilities"
+generate_excel(newfile, sheet_name, medium_df, 1)
+sheet_name = "High Vulnerabilities"
+generate_excel(newfile, sheet_name, high_df, 1)
+sheet_name = "Critical Vulnerabilities"
+generate_excel(newfile, sheet_name, critical_df, 1)
 delete_excel_sheet(newfile, "Sheet1")
 
 def main():
     family_vul, family_vul_rows, family_vul_columns = univariate_table(df, 'plugin_family')
     severity_vul, severity_vul_rows, severity_vul_columns = univariate_table(df, 'severity')
+    severity_vul['severity'] = severity_vul['severity'].apply(lambda x: excel_clickable_cell(x, sheet=f"{x} Vulnerabilities"))
     asset_group_vul, asset_group_vul_rows, asset_group_vul_columns = univariate_table(df, 'asset_group')
     asset_group_vul['asset_group'] = asset_group_vul['asset_group'].apply(lambda x: excel_clickable_cell(x, sheet="Original Vulnerabilities", cell=f"A{asset_group_dict.get(x, 1)}"))
     overdue_vul, overdue_vul_rows, overdue_vul_columns = univariate_table(df, 'overdue')
@@ -301,6 +325,10 @@ def main():
         hyperlink_cell(ws, first_data_row, last_data_row)
         new_row = new_row + overdue_vul_rows + 2
         severity_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
+        header_row = new_row+1
+        first_data_row = header_row+1
+        last_data_row = header_row+severity_vul_rows
+        hyperlink_cell(ws, first_data_row, last_data_row)
         new_row = new_row + severity_vul_rows + 2
         asset_group_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
         header_row = new_row+1
@@ -374,7 +402,7 @@ def main():
     max_row_table = min_row_table + pivot_table_1_wide_rows
     pivot_table_1_wide_chart = barchart_creation(sheet, "col", "Severity and Plugin Family", "Family", "Count", 2, pivot_table_1_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_1_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
     
-    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_1_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
+    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_1_wide_columns)}2", 1, 1, f"{sheet_name} Table - Breakdown by Severity", "center", "center", "00FFFF00")
     merge_cells_title(sheet, f"{get_column_letter(pivot_table_1_wide_columns+3)}1", f"{get_column_letter(pivot_table_1_wide_columns+3+round(pivot_table_1_wide_chart.width / 1.7))}2", 1, pivot_table_1_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
     wb.save(newfile)
@@ -407,7 +435,7 @@ def main():
     max_row_table = min_row_table + pivot_table_2_wide_rows
     pivot_table_2_wide_chart = barchart_creation(sheet, "col", "Severity and Asset Group", "Asset Group", "Count", 2, pivot_table_2_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_2_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
     
-    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_2_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
+    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_2_wide_columns)}2", 1, 1, f"{sheet_name} Table - Breakdown by Severity", "center", "center", "00FFFF00")
     merge_cells_title(sheet, f"{get_column_letter(pivot_table_2_wide_columns+3)}1", f"{get_column_letter(pivot_table_2_wide_columns+3+round(pivot_table_2_wide_chart.width / 1.7))}2", 1, pivot_table_2_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
     wb.save(newfile)
@@ -440,7 +468,7 @@ def main():
     max_row_table = min_row_table + pivot_table_3_wide_rows
     pivot_table_3_wide_chart = barchart_creation(sheet, "col", "Overdue and Plugin Family", "Overdue", "Count", 2, pivot_table_3_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_3_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
     
-    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_3_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
+    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_3_wide_columns)}2", 1, 1, f"{sheet_name} Table - Breakdown by Severity", "center", "center", "00FFFF00")
     merge_cells_title(sheet, f"{get_column_letter(pivot_table_3_wide_columns+3)}1", f"{get_column_letter(pivot_table_3_wide_columns+3+round(pivot_table_3_wide_chart.width / 1.7))}2", 1, pivot_table_3_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
     wb.save(newfile)
@@ -473,7 +501,7 @@ def main():
     max_row_table = min_row_table + pivot_table_4_wide_rows
     pivot_table_4_wide_chart = barchart_creation(sheet, "col", "Asset Group, Plugin Family and Severity", "Asset Group - Plugin Family", "Count", 4, pivot_table_4_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_4_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
     
-    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_4_wide_columns)}2", 1, 1, f"{sheet_name} Table", "center", "center", "00FFFF00")
+    merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_4_wide_columns)}2", 1, 1, f"{sheet_name} Table - Breakdown by Severity", "center", "center", "00FFFF00")
     merge_cells_title(sheet, f"{get_column_letter(pivot_table_4_wide_columns+3)}1", f"{get_column_letter(pivot_table_4_wide_columns+3+round(pivot_table_4_wide_chart.width / 1.7))}2", 1, pivot_table_4_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
     wb.save(newfile)
