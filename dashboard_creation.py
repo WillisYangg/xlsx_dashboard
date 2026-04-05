@@ -25,6 +25,11 @@ def autosize_df_columns(ws, df, start_col=1):
                 max_length = max(max_length, len(str(val)))
         ws.column_dimensions[get_column_letter(i)].width = max_length + 2
 
+def bold_header(ws, header_row, endcol, startcol=1):
+    from openpyxl.styles import Font
+    for col in range(startcol, int(endcol)+1):
+        ws.cell(row=header_row, column=col).font = Font(bold=True)
+
 # Excel Generation function
 def generate_excel(destination, excel_sheet_name, df, header_row):
     book = load_workbook(destination, keep_vba=True)
@@ -142,7 +147,7 @@ def pivot_table_wide(df, index_col, col, val, sheet=None, cell=None):
     pivot_df_wide_columns = pivot_df_wide.shape[1]
     return pivot_df_wide, pivot_df_wide_rows, pivot_df_wide_columns
 
-def barchart_creation(sheet, chartType, variable, x_title, y_title, min_col, max_col, min_row, max_row, showVal, showSerName, showCatName, showLeaderLines, cell, chartStyle=None, chartGrouping=None, chartOverlap=None, shape=None):
+def barchart_creation(sheet, chartType, variable, x_title, y_title, min_col, max_col, min_row, max_row, showVal, showSerName, showCatName, showLeaderLines, cell, chartStyle=None, chartGrouping=None, chartOverlap=None, shape=None, datarow=None):
     chart = BarChart()
     chart.type = chartType
     if chartStyle is not None:
@@ -161,7 +166,9 @@ def barchart_creation(sheet, chartType, variable, x_title, y_title, min_col, max
     
     # Data & Categories
     data = Reference(sheet, min_col=min_col, min_row=min_row, max_row=max_row, max_col=max_col)
-    cats = Reference(sheet, min_col=min_col-1, min_row=min_row+1, max_row=max_row)
+    if datarow is None:
+        datarow=min_row+1
+    cats = Reference(sheet, min_col=min_col-1, min_row=datarow, max_row=max_row)
     chart.add_data(data, titles_from_data=True)
     chart.dataLabels = DataLabelList() 
     chart.dataLabels.showVal = showVal
@@ -187,6 +194,41 @@ def barchart_creation(sheet, chartType, variable, x_title, y_title, min_col, max
     
     sheet.add_chart(chart, cell)
     return chart
+
+def batch_barchart(sheet, batch_size, **kwargs):
+    header_row = kwargs["min_row"]
+    max_row = kwargs["max_row"]
+    start_col = kwargs["max_col"] + 3
+
+    first_data_row = header_row+1
+    num_of_categories = max_row - header_row
+
+    if num_of_categories <= batch_size:
+        return [barchart_creation(
+            sheet=sheet,
+            **kwargs
+        )]
+
+    charts = []
+    batch_index = 0
+
+    for start in range(first_data_row, max_row, batch_size):
+        end = min(start+batch_size-1, max_row)
+        cell = f"{get_column_letter(start_col)}{4 + batch_index * 14}"
+
+        chart = barchart_creation(
+            sheet=sheet,
+            min_row=header_row,
+            max_row=end,
+            datarow=start,
+            cell=cell,
+            **{k: v for k, v in kwargs.items() if k not in ["min_row", "max_row", "cell"]}
+        )
+
+        charts.append(chart)
+        batch_index+=1
+
+    return charts
 
 def piechart_creation(sheet, shape, variable, min_col, min_row, max_row, max_col, showVal, showSerName, showCatName, showPercent, cell):
     chart = PieChart()
@@ -323,20 +365,25 @@ def main():
         first_data_row = header_row+1
         last_data_row = header_row+overdue_vul_rows
         hyperlink_cell(ws, first_data_row, last_data_row)
+        bold_header(ws,header_row,overdue_vul_columns)
         new_row = new_row + overdue_vul_rows + 2
         severity_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
         header_row = new_row+1
         first_data_row = header_row+1
         last_data_row = header_row+severity_vul_rows
         hyperlink_cell(ws, first_data_row, last_data_row)
+        bold_header(ws,header_row,severity_vul_columns)
         new_row = new_row + severity_vul_rows + 2
         asset_group_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
         header_row = new_row+1
         first_data_row = header_row+1
         last_data_row = header_row+asset_group_vul_rows
         hyperlink_cell(ws, first_data_row, last_data_row)
+        bold_header(ws,header_row,asset_group_vul_columns)
         new_row = new_row + asset_group_vul_rows + 2
         family_vul.to_excel(writer, sheet_name=sheet, startrow=new_row, startcol=0, index=False)
+        header_row = new_row+1
+        bold_header(ws,header_row,family_vul_columns)
 
         wb = writer.book
         ws = wb[sheet]
@@ -351,26 +398,26 @@ def main():
     min_row_table = 4
     max_row_table = min_row_table + overdue_vul_rows
     overdue_vul_chart = barchart_creation(sheet, "col", "Overdue", "Overdue", "Count", 2, overdue_vul_columns, min_row_table, max_row_table, True, False, False, False, f"{barchart_start_column}4", chartStyle=10, shape=4)
-    overdue_vul_piechart = piechart_creation(sheet, 4, "Overdue", 2, min_row_table, max_row_table, overdue_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(overdue_vul_chart.width / 1.7)+1)}4")
-    charts_length.append(barchart_start_column_value + round(overdue_vul_chart.width / 1.7)+1+round(overdue_vul_piechart.width / 1.7))
+    overdue_vul_piechart = piechart_creation(sheet, 4, "Overdue", 2, min_row_table, max_row_table, overdue_vul_columns, False, False, False, True, "P4")
+    # charts_length.append(barchart_start_column_value + round(overdue_vul_chart.width / 1.7)+1+round(overdue_vul_piechart.width / 1.7))
     min_row_table = min_row_table + overdue_vul_rows + 2
     max_row_table = max_row_table + 2 + severity_vul_rows
     severity_vul_chart = barchart_creation(sheet, "col", "Severity", "Severity", "Count", 2, severity_vul_columns, min_row_table, max_row_table, True, False, False, False, f"{barchart_start_column}21", chartStyle=10, shape=4)
-    severity_vul_piechart = piechart_creation(sheet, 4, "Severity", 2, min_row_table, max_row_table, severity_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(severity_vul_chart.width / 1.7)+1)}21")
-    charts_length.append(barchart_start_column_value + round(severity_vul_chart.width / 1.7)+1+round(severity_vul_piechart.width / 1.7))
+    severity_vul_piechart = piechart_creation(sheet, 4, "Severity", 2, min_row_table, max_row_table, severity_vul_columns, False, False, False, True, "P21")
+    # charts_length.append(barchart_start_column_value + round(severity_vul_chart.width / 1.7)+1+round(severity_vul_piechart.width / 1.7))
     min_row_table = min_row_table + severity_vul_rows + 2
     max_row_table = max_row_table + 2 + asset_group_vul_rows
     asset_group_vul_chart = barchart_creation(sheet, "col", "Asset Group", "Asset Group", "Count", 2, asset_group_vul_columns, min_row_table, max_row_table, True, False, False, False, f"{barchart_start_column}38", chartStyle=10, shape=4)
-    asset_group_vul_piechart = piechart_creation(sheet, 4, "Asset Group", 2, min_row_table, max_row_table, asset_group_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(asset_group_vul_chart.width / 1.7)+1)}38")
-    charts_length.append(barchart_start_column_value + round(asset_group_vul_chart.width / 1.7)+1+round(asset_group_vul_piechart.width / 1.7))
+    asset_group_vul_piechart = piechart_creation(sheet, 4, "Asset Group", 2, min_row_table, max_row_table, asset_group_vul_columns, False, False, False, True, "P38")
+    # charts_length.append(barchart_start_column_value + round(asset_group_vul_chart.width / 1.7)+1+round(asset_group_vul_piechart.width / 1.7))
     min_row_table = min_row_table + asset_group_vul_rows + 2
     max_row_table = max_row_table + 2 + family_vul_rows
     family_vul_chart = barchart_creation(sheet, "col", "Family", "Family", "Count", 2, family_vul_columns, min_row_table, max_row_table, True, False, False, False, f"{barchart_start_column}55", chartStyle=10, shape=4)
-    family_vul_piechart = piechart_creation(sheet, 4, "Family", 2, min_row_table, max_row_table, family_vul_columns, False, False, False, True, f"{get_column_letter(barchart_start_column_value + round(family_vul_chart.width / 1.7)+1)}55")
-    charts_length.append(barchart_start_column_value + round(family_vul_chart.width / 1.7)+1+round(family_vul_piechart.width / 1.7))
+    family_vul_piechart = piechart_creation(sheet, 4, "Family", 2, min_row_table, max_row_table, family_vul_columns, False, False, False, True, "P55")
+    # charts_length.append(barchart_start_column_value + round(family_vul_chart.width / 1.7)+1+round(family_vul_piechart.width / 1.7))
 
     merge_cells_title(sheet, "A1", "B2", 1, 1, "Summary Table", "center", "center", "00FFFF00")
-    merge_cells_title(sheet, "D1", f"{get_column_letter(max(charts_length))}2", 1, 4, "Summary Table Charts", "center", "center", '0000FF00')
+    merge_cells_title(sheet, "D1", "Z2", 1, 4, "Summary Table Charts", "center", "center", '0000FF00')
     merge_cells_title(sheet, "A30", "B31", 30, 1, "Click here to see all variables", "center", "center", "FFCCCC")
 
     wb.save(newfile)
@@ -433,10 +480,29 @@ def main():
 
     min_row_table = 4
     max_row_table = min_row_table + pivot_table_2_wide_rows
-    pivot_table_2_wide_chart = barchart_creation(sheet, "col", "Severity and Asset Group", "Asset Group", "Count", 2, pivot_table_2_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_2_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+    # pivot_table_2_wide_chart = barchart_creation(sheet, "col", "Severity and Asset Group", "Asset Group", "Count", 2, pivot_table_2_wide_columns, min_row_table, max_row_table, True, False, False, False, f"{get_column_letter(pivot_table_2_wide_columns+3)}4", chartGrouping="percentStacked", chartOverlap=100)
+    pivot_table_2_wide_chart = batch_barchart(
+        sheet=sheet,
+        batch_size=5,
+        chartType="col",
+        variable="Severity and Asset Group",
+        x_title="Asset Group",
+        y_title="Count",
+        min_col=2,
+        max_col=pivot_table_2_wide_columns,
+        min_row=min_row_table,
+        max_row=max_row_table,
+        showVal=True,
+        showSerName=False,
+        showCatName=False,
+        showLeaderLines=False,
+        cell=f"{get_column_letter(pivot_table_2_wide_columns+3)}4",
+        chartGrouping="percentStacked",
+        chartOverlap=100
+    )
     
     merge_cells_title(sheet, "A1", f"{get_column_letter(pivot_table_2_wide_columns)}2", 1, 1, f"{sheet_name} Table - Breakdown by Severity", "center", "center", "00FFFF00")
-    merge_cells_title(sheet, f"{get_column_letter(pivot_table_2_wide_columns+3)}1", f"{get_column_letter(pivot_table_2_wide_columns+3+round(pivot_table_2_wide_chart.width / 1.7))}2", 1, pivot_table_2_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
+    merge_cells_title(sheet, f"{get_column_letter(pivot_table_2_wide_columns+3)}1", f"{get_column_letter(pivot_table_2_wide_columns+3+round(pivot_table_2_wide_chart[0].width / 1.7))}2", 1, pivot_table_2_wide_columns+3, "Summary Table Charts", "center", "center", '0000FF00')
 
     wb.save(newfile)
 
