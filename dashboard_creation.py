@@ -1,17 +1,13 @@
 import pandas as pd
 import numpy as np
-import seaborn as sb
-import matplotlib.pyplot as plt
 import os
 import shutil
-import openpyxl
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import get_column_letter, column_index_from_string
 from openpyxl import load_workbook
-from openpyxl.chart import BarChart, Reference, LineChart, PieChart
+from openpyxl.chart import BarChart, Reference, PieChart
 from openpyxl.chart.label import DataLabelList
-from openpyxl.styles import Alignment  
-from openpyxl.styles import PatternFill, Font
-import xlwings as xw
+from openpyxl.chart.series import SeriesLabel
+from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 from datetime import datetime
 from contextlib import contextmanager
 
@@ -98,12 +94,13 @@ def excel_clickable_cell(val, sheet, cell="A1"):
     return f'=HYPERLINK("#\'{sheet}\'!{cell}", "{val}")'
 
 # Chart functions
-def merge_cells_title(sheet, cell1, cell2, row_no, col, val, horizontal_val, vertical_val, color):
+def merge_cells_title(sheet, cell1, cell2, row_no, col, val, horizontal_val, vertical_val, color="00FFFF00", font_size=11, bold=False):
     sheet.merge_cells(f'{cell1}:{cell2}')
     cell = sheet.cell(row=row_no, column=col)
     cell.value = val
     cell.alignment = Alignment(horizontal=horizontal_val, vertical=vertical_val)
     cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+    cell.font = Font(size=font_size, bold=bold)
 
 def hyperlink_cell(ws, first_data_row, last_data_row, column_no=1):
     for row in range(first_data_row, last_data_row + 1):
@@ -354,13 +351,14 @@ delete_excel_sheet(newfile, "Sheet1")
 
 family_vul, family_vul_rows, family_vul_columns = univariate_table(df, 'plugin_family')
 severity_vul, severity_vul_rows, severity_vul_columns = univariate_table(df, 'severity')
-severity_vul['severity'] = severity_vul['severity'].apply(lambda x: excel_clickable_cell(x, sheet=f"{x} Vulnerabilities"))
+critical_value = severity_vul.loc[severity_vul['Vulnerabilities by severity'] == 'Critical', 'Total Findings'].iloc[0]
+severity_vul[severity_vul.columns[0]] = severity_vul[severity_vul.columns[0]].apply(lambda x: excel_clickable_cell(x, sheet=f"{x} Vulnerabilities"))
 asset_group_vul, asset_group_vul_rows, asset_group_vul_columns = univariate_table(df, 'asset_group')
-asset_group_vul['asset_group'] = asset_group_vul['asset_group'].apply(lambda x: excel_clickable_cell(x, sheet="Original Vulnerabilities", cell=f"A{asset_group_dict.get(x, 1)}"))
+asset_group_vul[asset_group_vul.columns[0]] = asset_group_vul[asset_group_vul.columns[0]].apply(lambda x: excel_clickable_cell(x, sheet="Original Vulnerabilities", cell=f"A{asset_group_dict.get(x, 1)}"))
 overdue_vul, overdue_vul_rows, overdue_vul_columns = univariate_table(df, 'overdue')
-overdue_vul['overdue'] = np.where(overdue_vul['overdue'] == "Y", overdue_vul['overdue'].apply(excel_clickable_cell, sheet="Overdue Vulnerabilities"), overdue_vul['overdue'].apply(excel_clickable_cell, sheet="Non-Overdue Vulnerabilities"))
-barchart_start_column_value = family_vul_columns+2
-barchart_start_column = get_column_letter(barchart_start_column_value)
+overdue_vul[overdue_vul.columns[0]] = np.where(overdue_vul[overdue_vul.columns[0]] == "Y", overdue_vul[overdue_vul.columns[0]].apply(excel_clickable_cell, sheet="Overdue Vulnerabilities"), overdue_vul[overdue_vul.columns[0]].apply(excel_clickable_cell, sheet="Non-Overdue Vulnerabilities"))
+# barchart_start_column_value = family_vul_columns+2
+# barchart_start_column = get_column_letter(barchart_start_column_value)
 pivot_table_1_wide, pivot_table_1_wide_rows, pivot_table_1_wide_columns = pivot_table_wide(df, "plugin_family", "severity", "plugin_id")
 pivot_table_2_wide, pivot_table_2_wide_rows, pivot_table_2_wide_columns = pivot_table_wide(df, "asset_group", "severity", "plugin_id")
 pivot_table_2_wide['asset_group'] = pivot_table_2_wide['asset_group'].apply(lambda x: excel_clickable_cell(x, sheet="Original Vulnerabilities", cell=f"A{asset_group_dict.get(x, 1)}"))
@@ -498,9 +496,21 @@ family_vul_chart = batch_barchart(
 family_vul_piechart = piechart_creation(sheet, 4, "Family", 2, min_row_table, max_row_table, family_vul_columns, False, False, False, True, "N55")
 # charts_length.append(barchart_start_column_value + round(family_vul_chart.width / 1.7)+1+round(family_vul_piechart.width / 1.7))
 
-merge_cells_title(sheet, "A1", "B2", 1, 1, "Summary Table", "center", "center", "00FFFF00")
-merge_cells_title(sheet, "D1", "W2", 1, 4, "Summary Table Charts", "center", "center", '0000FF00')
-merge_cells_title(sheet, "A30", "B31", 30, 1, "Click here to see all variables", "center", "center", "FFCCCC")
+thin = Side(style="thin", color="000000")
+no_border = Side(style=None)
+title_border = Border(left=thin, right=no_border, top=thin, bottom=no_border)
+status_border = Border(left=no_border, right=no_border, top=thin, bottom=no_border)
+closing_border = Border(left=no_border, right=thin, top=thin, bottom=no_border)
+
+merge_cells_title(sheet, "A1", "B2", 1, column_index_from_string("A"), "Summary Table", "center", "center")
+merge_cells_title(sheet, "D1", "O2", 1, column_index_from_string("D"), "Summary Table Charts", "center", "center")
+merge_cells_title(sheet, "D6", "F8", 6, column_index_from_string("D"), len(df), "center", "center", color="FFFFFF", font_size=20, bold=True)
+merge_cells_title(sheet, "G6", "I8", 6, column_index_from_string("G"), len(overdue_df), "center", "center", color="FFFFFF", font_size=20, bold=True)
+merge_cells_title(sheet, "J6", "L8", 6, column_index_from_string("J"), len(non_overdue_df), "center", "center", color="FFFFFF", font_size=20, bold=True)
+merge_cells_title(sheet, "M6", "O8", 6, column_index_from_string("M"), critical_value, "center", "center", color="FFFFFF", font_size=20, bold=True)
+merge_cells_title(sheet, "A36", "B37", 36, column_index_from_string("A"), "Click here to see all variables", "center", "center", "FFCCCC")
+
+sheet.sheet_view.showGridLines = False
 
 wb.save(newfile)
 
